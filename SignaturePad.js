@@ -1,5 +1,5 @@
 import React, { useState, useRef, useImperativeHandle, forwardRef } from 'react';
-import { View, StyleSheet, Button, Dimensions } from 'react-native';
+import { View, StyleSheet, Button, Dimensions, Alert } from 'react-native';
 import { PanGestureHandler, GestureHandlerRootView } from 'react-native-gesture-handler';
 import Svg, { Path } from 'react-native-svg';
 import { captureRef } from 'react-native-view-shot';
@@ -8,6 +8,7 @@ const SignaturePad = forwardRef((_, ref) => {
   const [lines, setLines] = useState([]);
   const [currentPath, setCurrentPath] = useState('');
   const canvasRef = useRef(null);
+  const emptyCanvasRef = useRef(null); // Reference for an empty canvas
 
   useImperativeHandle(ref, () => ({
     saveSignature,
@@ -32,30 +33,54 @@ const SignaturePad = forwardRef((_, ref) => {
   };
 
   const saveSignature = async () => {
-    if (lines.length === 0 && currentPath === '') {
-      return null;  // No signature drawn
-    }
-
     try {
+      // Capture the empty canvas to compare later
+      const emptyUri = await captureRef(emptyCanvasRef, {
+        format: 'png',
+        quality: 1,
+      });
+
+      // Capture the current signature canvas
       const uri = await captureRef(canvasRef, {
         format: 'png',
         quality: 1,
       });
-      console.log('Captured URI:', uri); // Log the captured URI
-      const base64 = await fetch(uri)
+
+      // Convert the captured empty canvas to base64
+      const emptyBase64 = await fetch(emptyUri)
         .then(res => res.blob())
         .then(blob => {
           const reader = new FileReader();
           reader.readAsDataURL(blob);
           return new Promise((resolve) => {
             reader.onloadend = () => {
-              const base64data = reader.result;
-              resolve(base64data.split(',')[1]); // Remove the data:image/png;base64, prefix
+              const base64data = reader.result.split(',')[1];
+              resolve(base64data);
             };
           });
         });
-      console.log('Generated Base64:', base64); // Log the generated Base64 string
-      return base64;
+
+      // Convert the captured signature to base64
+      const signatureBase64 = await fetch(uri)
+        .then(res => res.blob())
+        .then(blob => {
+          const reader = new FileReader();
+          reader.readAsDataURL(blob);
+          return new Promise((resolve) => {
+            reader.onloadend = () => {
+              const base64data = reader.result.split(',')[1];
+              resolve(base64data);
+            };
+          });
+        });
+
+      // Check if the signature is non-empty
+      if (signatureBase64 !== emptyBase64) {
+        return signatureBase64; // Return the non-empty signature
+      } else {
+        Alert.alert('Signature is empty', 'Please provide a signature before saving.');
+        return null; // Return null if the signature is empty
+      }
     } catch (error) {
       console.log('Failed to save signature:', error);
     }
@@ -78,6 +103,11 @@ const SignaturePad = forwardRef((_, ref) => {
         </PanGestureHandler>
         <View style={styles.buttonContainer}>
           <Button title="Clear" onPress={clearSignature} />
+        </View>
+
+        {/* Hidden empty canvas for comparison */}
+        <View ref={emptyCanvasRef} style={[styles.signaturePad, { position: 'absolute', top: -1000, left: -1000 }]}>
+          <Svg style={styles.svg}></Svg>
         </View>
       </View>
     </GestureHandlerRootView>
